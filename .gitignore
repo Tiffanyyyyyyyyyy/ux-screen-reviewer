@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.env
+.env.*
+!.env.example
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.heic
+*.tiff
+*.bmp

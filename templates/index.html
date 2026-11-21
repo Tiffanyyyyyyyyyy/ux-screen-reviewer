@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UX Screen Reviewer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap brand"><span class="mark" aria-hidden="true">▣</span> UX Screen Reviewer</div>
+  </header>
+  <main class="wrap">
+    <header class="intro">
+      <div>
+        <h1>Review product screens</h1>
+        <p>Check layout, translation, and intent across a screen or flow.</p>
+      </div>
+      <button type="button" id="refresh-workspace" title="Clear screenshots and report while keeping your API connection, context, and intent">Refresh workspace</button>
+    </header>
+    <details class="card connection"{% if not review_enabled %} open{% endif %}>
+      <summary>Model connection <span id="connection-state">{{ (model or 'Automatic selection') if review_enabled else 'Not connected' }}</span></summary>
+      <div id="connected-key" class="connected-key" {% if not connection_verified %}hidden{% endif %}>
+        <span>✓ API key verified</span>
+        <button type="button" id="replace-key">Replace API key</button>
+      </div>
+      <form id="connection-form" action="{{ url_for('connect') }}" method="post" {% if connection_verified %}hidden{% endif %}>
+        <p>The app tests the lowest-priced supported vision model available to your API project. The check uses a small test image and may incur a small API charge. Your key stays in server memory until Flask stops.</p>
+        <div class="connection-fields">
+          <div>
+            <label for="api-key">OpenAI API key</label>
+            <input id="api-key" type="password" {% if not review_enabled %}required{% endif %} autocomplete="off" maxlength="1024" placeholder="{{ 'Leave blank to check your current key' if review_enabled else 'Enter API key' }}">
+          </div>
+          <button type="submit" id="connect-button">Connect</button>
+        </div>
+        <p id="connection-status" role="status"></p>
+      </form>
+    </details>
+    <div class="workspace">
+      <form class="inputs" id="review-form" action="{{ url_for('review') }}" method="post" enctype="multipart/form-data">
+        <section class="card" aria-labelledby="screenshots-title">
+          <h2 id="screenshots-title">Screenshots</h2>
+          <p id="upload-help">Add up to {{ max_screenshots }} PNG, JPEG, or WebP screenshots, 8 MiB each. Use any language. Keep flow screenshots in order and include matching versions for translation comparisons.</p>
+          <div class="drop">
+            <label for="screenshots">Add screenshots</label>
+            <input type="file" id="screenshots" data-max="{{ max_screenshots }}" multiple accept="image/png,image/jpeg,image/webp" aria-describedby="upload-help upload-status">
+          </div>
+          <p id="upload-status" role="status"></p>
+          <div id="previews" class="uploads"></div>
+        </section>
+        <section class="card" aria-labelledby="context-title">
+          <h2 id="context-title">Product context</h2>
+          <label for="audience">Who is the user?</label>
+          <textarea id="audience" name="audience" maxlength="2000" rows="2" placeholder="First-time shoppers using guest checkout"></textarea>
+          <label for="flow-stage">Where are they in the flow?</label>
+          <textarea id="flow-stage" name="flow_stage" maxlength="2000" rows="2" placeholder="They’ve entered delivery details and are about to pay"></textarea>
+          <label for="product-rules">What rules apply? <span class="optional">Optional</span></label>
+          <textarea id="product-rules" name="product_rules" maxlength="2000" rows="2" placeholder="Their card is charged as soon as they confirm payment"></textarea>
+        </section>
+        <section class="card" aria-labelledby="intent-title">
+          <h2 id="intent-title">Screen intent</h2>
+          <p>Supply what you know about the intended takeaway and next step.</p>
+          <label for="takeaway">What should the user understand?</label>
+          <textarea id="takeaway" name="takeaway" maxlength="2000" rows="2" placeholder="The total includes delivery and will be charged now"></textarea>
+          <label for="next-action">What should they do next?</label>
+          <textarea id="next-action" name="next_action" maxlength="2000" rows="2" placeholder="Check the total and confirm payment"></textarea>
+        </section>
+        <details class="card evidence-input">
+          <summary>Additional evidence <span class="optional">Optional</span></summary>
+          <label for="source-copy">Source copy for translation comparison</label>
+          <textarea id="source-copy" name="source_copy" maxlength="2000" rows="2" placeholder="Paste the source wording and identify its language and element"></textarea>
+          <label for="interaction-evidence">Observed interaction result</label>
+          <textarea id="interaction-evidence" name="interaction_evidence" maxlength="2000" rows="2" placeholder="Describe what you observed after tapping, including the screen and action"></textarea>
+        </details>
+        <div class="actions">
+          <button type="submit" id="review-button" {% if not review_enabled %}disabled{% endif %} aria-describedby="review-status">Review screen</button>
+          <span id="review-status" role="status">{{ 'Screenshots and text are sent to OpenAI for review.' if review_enabled else 'Model connection required' }}</span>
+        </div>
+        <p id="review-error" role="alert" hidden></p>
+      </form>
+      <section class="card report" aria-labelledby="report-title">
+        <header class="report-header">
+          <h2 id="report-title">Review report</h2>
+          <div class="actions">
+            <button type="button" id="load-sample" aria-controls="sample" aria-expanded="false">Load sample</button>
+            <button type="button" id="download-report" hidden>Download text</button>
+          </div>
+        </header>
+        <div id="next-review-actions" class="actions" hidden>
+          <button type="button" id="add-screens">Add screenshots</button>
+          <button type="button" id="new-review">Start new review</button>
+        </div>
+        <div id="empty-report" class="empty">
+          <span class="screen-icon" aria-hidden="true">▤</span>
+          <h3>No report yet</h3>
+          <p>Load the sample to see what a review looks like.</p>
+        </div>
+        <article id="live-report" class="report-content" hidden></article>
+        <form id="follow-up" hidden>
+          <h3>Answer open questions</h3>
+          <p>Provide any answers you have to update this review.</p>
+          <div id="answer-fields"></div>
+          <button type="submit">Re-evaluate report</button>
+          <p id="follow-up-status" role="status"></p>
+        </form>
+        <article id="sample" class="report-content" hidden>
+          <h3 tabindex="-1">Sample report</h3>
+          <p>Illustrative review of a fictional checkout screen.</p>
+          <section>
+            <h4>Screen readout</h4>
+            <div class="readout">
+              <div class="sample-screen" aria-label="Fictional checkout mockup">
+                <strong>Checkout</strong><span>Order total €24.00</span><span class="sample-cta">Continue</span>
+              </div>
+              <div>
+                <h5>Checkout</h5>
+                <p class="report-meta">en · Guest shoppers</p>
+                <dl class="report-details">
+                  <dt>Intended takeaway</dt><dd>Confirm the total and know when payment will occur.</dd>
+                  <dt>Likely takeaway</dt><dd>The total is €24.00, and there is another step.</dd>
+                  <dt>First impression</dt><dd>The dark button draws the eye first. The short screen is easy to scan.</dd>
+                  <dt>Primary action</dt><dd>“Continue” is easy to find.</dd>
+                  <dt>Expected result</dt><dd>Shoppers may expect an order review or another checkout step.</dd>
+                </dl>
+              </div>
+            </div>
+          </section>
+          <section>
+            <h4>Prioritized fixes</h4>
+            <article class="finding" id="sample-finding" tabindex="-1">
+              <header><h5>Clarify whether the button charges the shopper</h5><span class="report-badge high">High</span></header>
+              <dl class="report-details">
+                <dt>Affected element</dt><dd>Primary checkout button</dd>
+                <dt>Evidence</dt><dd>“Continue” gives no indication that tapping triggers payment.</dd>
+                <dt>User impact</dt><dd>Shoppers may proceed expecting another chance to review the order.</dd>
+                <dt>Suggested fix</dt><dd>Use “Pay €24.00” if tapping charges the shopper immediately.</dd>
+                <dt>How to verify</dt><dd>Confirm the tap result and ask shoppers what they expect before tapping.</dd>
+              </dl>
+            </article>
+          </section>
+          <section>
+            <h4>Review coverage</h4>
+            <ul class="coverage-list">
+              <li><strong>Layout and first impression</strong><span class="report-badge clear">Clear</span><p>The compact layout is easy to scan.</p></li>
+              <li><strong>Action clarity</strong><span class="report-badge issue">Issue found</span><p>The action is prominent but its result is ambiguous. <a href="#sample-finding">View fix</a></p></li>
+              <li><strong>Copy and intent</strong><span class="report-badge issue">Issue found</span><p>The total is clear, but the button leaves payment timing open. <a href="#sample-finding">View fix</a></p></li>
+              <li><strong>Language and fit</strong><span class="report-badge clear">Clear</span><p>The English wording fits the available space.</p><p class="report-meta">Translation fidelity · Unchecked</p></li>
+              <li><strong>Imagery</strong><span class="report-badge neutral">Not applicable</span><p>The screen has no imagery.</p></li>
+              <li><strong>Colour</strong><span class="report-badge clear">Clear</span><p>The dark button stands out from the light surface.</p></li>
+            </ul>
+          </section>
+          <section>
+            <h4>Open questions</h4>
+            <ul><li>Does tapping Continue charge the shopper immediately?</li></ul>
+          </section>
+        </article>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
